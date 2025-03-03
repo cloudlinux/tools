@@ -6,7 +6,7 @@ This script provides a set of functionalities for monitoring system load and fil
 Run the script with one of the following options:
 
 ```bash
-wget -O loadmonitoring.sh https://raw.githubusercontent.com/mramirez-cl/tools/refs/heads/main/loadmonitoring/loadmonitoring.sh 
+wget -O loadmonitoring.sh https://raw.githubusercontent.com/cloudlinux/tools/refs/heads/main/loadmonitoring/loadmonitoring.sh 
 bash loadmonitoring.sh [OPTION] [ARGUMENTS]
 ```
 
