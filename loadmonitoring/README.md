@@ -3,10 +3,14 @@
 This script provides a set of functionalities for monitoring system load and file/directories changes. It also cleans up created directories and files when not required anymore. Below is a detailed description of its usage and options.
 
 ## Usage
-Run the script with one of the following options:
+To download the script:
 
 ```bash
 wget -O loadmonitoring.sh https://raw.githubusercontent.com/cloudlinux/tools/refs/heads/main/loadmonitoring/loadmonitoring.sh 
+```
+
+Then run it over bash:
+```
 bash loadmonitoring.sh [OPTION] [ARGUMENTS]
 ```
 
