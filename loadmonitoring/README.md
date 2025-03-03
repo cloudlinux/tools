@@ -7,7 +7,6 @@ Run the script with one of the following options:
 
 ```bash
 wget -O loadmonitoring.sh https://raw.githubusercontent.com/cloudlinux/tools/refs/heads/main/loadmonitoring/loadmonitoring.sh 
-bash loadmonitoring.sh [OPTION] [ARGUMENTS]
 ```
 
 ## **Options**  
