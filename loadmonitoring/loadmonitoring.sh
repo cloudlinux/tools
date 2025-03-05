@@ -42,6 +42,20 @@ check_system() {
 
 }
 
+## Function to install the audit package if needed ##
+install_audit() {
+    echo "auditctl not found. Installing the audit package..."
+    
+    if ! $PKG_MANAGER -y install audit && ! $PKG_MANAGER -y install auditd; then
+        colored_echo red "\nError: Unable to install the audit package. Please check manually."
+        exit 1
+    fi
+
+    systemctl enable auditd
+    systemctl start auditd
+    echo -e "\nAudit package successfully installed.\n"
+}
+
 ### Initial data gathering and logging ###
 set_up_logging() {
     LOGFILE="$SERVER_STATUS_DIR/initial_setup_report.log"
@@ -262,7 +276,7 @@ EOF
         sleep 1
     done
 
-    echo -e "\n\nThe addition of the cronjob timed out after 120 seconds. Please check manually the /etc/cron.d directory."
+    colored_echo red "\n\nThe addition of the cronjob timed out after 120 seconds. Please check manually the /etc/cron.d directory."
     exit 1
 
 }
@@ -271,17 +285,14 @@ EOF
 file_monitoring() {
     check_system
     set_up_logging
-    exec > >(tee -a "$LOGFILE") 2>&1
 
     if ! command -v /usr/sbin/auditctl &>/dev/null; then
-        echo "auditctl not found. Installing audit package..."
-        $PKG_MANAGER -y install audit || $PKG_MANAGER -y install auditd
-        systemctl enable auditd
-        systemctl start auditd
-        echo -e "\nAudit service installed and started.\n"
+        install_audit
     else
-        echo -e "auditctl is already installed.\n"
+        echo -e "\nAudit package is already installed.\n"
     fi
+
+    exec > >(tee -a "$LOGFILE") 2>&1
 
     local target=$1
     if [ -z "$target" ]; then

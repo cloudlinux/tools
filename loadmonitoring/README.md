@@ -10,7 +10,7 @@ wget -O loadmonitoring.sh https://raw.githubusercontent.com/cloudlinux/tools/ref
 ```
 
 Then run it over bash:
-```
+```bash
 bash loadmonitoring.sh [OPTION] [ARGUMENTS]
 ```
 
