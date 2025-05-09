@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Ensure the script is running with Bash.
+if [ "$(ps -p $$ -o comm=)" != "bash" ]; then
+    exec /bin/bash "$0" "$@"
+fi
+
 STATUS_DIR="/var/log"
 SERVER_STATUS_DIR="$STATUS_DIR/server-status"
 SCRIPT_DIR="/usr/local/bin"
