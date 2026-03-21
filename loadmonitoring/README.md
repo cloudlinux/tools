@@ -33,6 +33,10 @@ bash loadmonitoring.sh [OPTION] [ARGUMENTS]
   - `-t, --threshold VALUE`  
     Allows manual setting of the load threshold for monitoring. If not provided, defaults to 75% of CPU core count.  
 
+### **Stop Monitoring:**
+  - `-s, --stop-monitoring`
+    Stops load monitoring (removes the cronjob only, keeps the data gathered)
+
 ### **File Monitoring**
 - `-f, --file-monitoring FILE/DIRECTORY`  
   Monitors changes to a specified file or directory. 
