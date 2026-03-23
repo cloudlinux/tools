@@ -61,6 +61,18 @@ install_audit() {
     echo -e "\nAudit package successfully installed.\n"
 }
 
+## Function to install netstat and iotop ##
+install_netstat_iotop() {
+    echo "Installing the netstat and iotop..."
+    
+    if ! $PKG_MANAGER -y install net-tools iotop; then
+        colored_echo red "\nError: Unable to install the packages. Please check manually."
+        exit 1
+    fi
+
+    echo -e "\nPackages successfully installed.\n"
+}
+
 ### Initial data gathering and logging ###
 set_up_logging() {
     LOGFILE="$SERVER_STATUS_DIR/initial_setup_report.log"
@@ -126,6 +138,7 @@ load_monitoring() {
     fi
 
     set_up_logging
+    install_netstat_iotop
     exec > >(tee -a "$LOGFILE") 2>&1
 
     ### General info ###
@@ -164,9 +177,37 @@ load_monitoring() {
     cat <<EOF >"$SCRIPT_DIR"/getstats
 #!/bin/bash
 
-DATE=\$(date +%Y-%m-%d-%s)
+DATE=\$(date +%Y-%m-%d)
 SCRIPT_LOGFILE=$SERVER_STATUS_DIR/\$DATE/monitoring_script.log 
+
 exec > >(tee -a "\$SCRIPT_LOGFILE") 2>&1
+
+### Function to check available space before execution ###
+check_space_safe() {
+    local status_dir="$SERVER_STATUS_DIR"
+
+    status_dir_size=\$(du -sb "\$status_dir" 2>/dev/null | cut -f1)
+    if [[ \$status_dir_size -gt 2147483648 ]]; then
+        status_dir_gb=\$(( status_dir_size / 1024 / 1024 / 1024 ));
+        echo "WARNING: $SERVER_STATUS_DIR has grown too large (\$status_dir_gb GB). Deleting older monitoring logs before continuing..."
+        echo ""
+        while true; do
+            status_dir_size=\$(du -sb "\$status_dir" 2>/dev/null | cut -f1)
+            [[ \$status_dir_size -le 1073741824 ]] && break
+            oldest=\$(find "\$status_dir" -maxdepth 1 -mindepth 1 -type d ! -name 'initial_setup_report.log' -printf '%T+ %p\\n' 2>/dev/null | sort | head -1 | cut -d' ' -f2-)
+            dir_basename=\$(basename "\$oldest")
+            if [[ "\$dir_basename" == "\$DATE" ]]; then
+                # Same-day dir: truncate log instead of removing
+                logfile="\$oldest/monitoring_script.log"
+                tail -500 "\$logfile" > "\${logfile}.tmp" && mv "\${logfile}.tmp" "\$logfile"
+                continue  
+            else
+                rm -rfv "\$oldest"
+            fi
+        done
+    fi
+}
+check_space_safe
 
 ### Check if direction to store log exists, if doesn't - create it ###
 if [ ! -d $SERVER_STATUS_DIR/"\$DATE" ]; then 
@@ -207,36 +248,40 @@ get_site_statistics() {
         DB_AUTH="-uda_admin -p\$(grep -oP 'password="\K[^"]+' /usr/local/directadmin/conf/my.cnf)"
         /usr/bin/mysqladmin \$DB_AUTH processlist -v 
     else
-        echo 'Unable to get domain stats'
+        echo -e '\nUnable to get domain stats\n'
     fi 
 }
 
 ### Add blank line and head 5 of top on every script run ###
 echo
-echo "!-------------------------------------------- top 20"
+echo -e "\n!-------------------------------------------- top 20"
 COLUMNS=512 /usr/bin/top -cSb -n 1 | head -20                         
 
-echo "!---------------------------------------- vmstat 1 4"
+echo -e "\n!---------------------------------------- vmstat 1 4"
 /usr/bin/vmstat 1 4                                        
 
 ### Check if load average is greater or equal than load threshold (by default, it's 75% of CPU core count). If it does - collects needed stats ###
 one_minute_load_avg=\$(awk '{print int(\$1)}' /proc/loadavg)
 if [[ "\$one_minute_load_avg" -ge $LOAD_THRESHOLD ]]; then
 
-    echo "!---------------------------------- netstat by state"
-    /bin/netstat -an|awk '/tcp/ {print \$6}'|sort|uniq -c       
+    high_load_file="$SERVER_STATUS_DIR/"\$DATE"/high_load_instance_\$(date +%H).log"
+    {
+        echo "=== High load instance started at \$(date) ==="
+        echo ""
+        echo -e "\n!---------------------------------- netstat by state" 
+        /bin/netstat -an|awk '/tcp/ {print \$6}'|sort|uniq -c       
 
-    echo "!-------------------------------- ps by memory usage"
-    ps aux | sort -nk +4 | tail                                
+        echo -e "\n!-------------------------------- ps by memory usage"
+        ps aux | sort -nk +4 | tail                                
 
-    echo "!------------------------------------- iotop -b -n 3"
-    /usr/sbin/iotop -b -o -n 3                                 
+        echo -e "\n!------------------------------------- iotop -b -n 3"
+        /usr/sbin/iotop -b -o -n 3                                 
 
-    echo "!------------------------------------------- ps axuf"
-    ps axuf                                                    
+        echo -e "\n!------------------------------------------- ps axuf"
+        ps axuf                                                    
 
-    get_site_statistics                        
-
+        get_site_statistics                        
+    }  2>&1 | tee -a "\$high_load_file"
 fi
 
 ### Removing directories older then 15 days ###
@@ -254,7 +299,6 @@ EOF
     fi
 
     ### Installing cron task ###
-    existing_dirs=$(find "$SERVER_STATUS_DIR" -name "20*" -type d 2>/dev/null)
     echo "* * * * * root /usr/bin/flock -n /var/run/cloudlinux_getstats.cronlock /bin/bash $SCRIPT_DIR/getstats >/dev/null 2>&1 " >/etc/cron.d/getstats
     echo -e "\nCronjob installed.\n"
 
@@ -264,16 +308,12 @@ EOF
     SPINNER=("-" "\\" "|" "/") # Spinner animation
     SPINNER_INDEX=0
 
-    while ((SECONDS < 120)); do
-        new_dirs=$(find "$SERVER_STATUS_DIR" -name "20*" -type d 2>/dev/null)
-
-        for dir in $new_dirs; do
-            if ! grep -q "$dir" <<<"$existing_dirs"; then
-                echo -e "\nCronjob successfully verified.\n\n* The actions just performed were logged at $SERVER_STATUS_DIR/initial_setup_report.log for future reference.\n* Getstats script saved at $SCRIPT_DIR/getstats.\n* Logs saved at $SERVER_STATUS_DIR."
+    while ((SECONDS < 125)); do
+        if find "$SERVER_STATUS_DIR" -maxdepth 2 -name "monitoring_script.log" -mmin -1 2>/dev/null | grep -q .; then
+                echo -e "\nCronjob successfully verified.\n\n* The actions just performed were logged at $SERVER_STATUS_DIR/initial_setup_report.log for future reference.\n* Getstats script saved at $SCRIPT_DIR/getstats\n* Logs saved at $SERVER_STATUS_DIR"
                 colored_echo green "\n\nSetup completed."
                 exit 0
-            fi
-        done
+        fi
 
         printf "\rChecking cron job status... %s" "${SPINNER[$SPINNER_INDEX]} "
         SPINNER_INDEX=$(((SPINNER_INDEX + 1) % 4))
@@ -322,6 +362,14 @@ file_monitoring() {
     exit 0
 }
 
+## Stop monitoring function (cron only, keep data) ##
+stop_monitoring() {
+    echo "Deleting cronjob..."
+    rm -vf /etc/cron.d/getstats
+    colored_echo green "\nMonitoring stopped. Cronjob removed. Data in $SERVER_STATUS_DIR was preserved."
+    exit 0
+}
+
 ## Cleanup function ##
 cleanup() {
     echo "Deleting $SERVER_STATUS_DIR..."
@@ -344,6 +392,7 @@ Usage:
       -o, --override                     Overrides existing monitoring script and cronjob
       -t, --threshold VALUE              Set load threshold for the monitoring script
   -f, --file-monitoring                  Monitor file changes 
+  -s, --stop-monitoring                  Stops load monitoring (removes the cronjob only, keeps the data)
   -c, --cleanup                          Delete the script's directories and files
 EOF
 }
@@ -390,6 +439,9 @@ while true; do
             exit 1
         fi
         file_monitoring "$2"
+        ;;
+    -s | --stop-monitoring)
+        stop_monitoring
         ;;
     -c | --cleanup)
         cleanup
